@@ -30,10 +30,24 @@ app.listen(PORT, function () {
 app.get("/", (req, res) => {
     res.render("home");
 })
+app.route("/login")
+    .get((req, res) => {
+        res.render("login");
+    })
+    .post((req, res) => {
+        const username = req.body.username;
+        const password = req.body.password;
 
-app.get("/login", (req, res) => {
-    res.render("login");
-})
+        User.findOne({email: username}, (err,result)=>{
+            if(err){
+                res.send(err);
+            }else{
+                if(result && result.password === password){
+                    res.render("secrets");
+                }
+            }
+        });
+    });
 
 app.route("/register")
     .get((req, res) => {
