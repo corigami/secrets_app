@@ -1,23 +1,22 @@
 //npm modules
+require('dotenv').config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
-require('dotenv').config();
+const md5 = require('md5');
 
 /* ---------------Database Configuration ------------*/
-const DB_PORT = 27017;
-const DB_URI = "mongodb://localhost:" + DB_PORT + "/userdb";
+const DB_SERV = process.env.DB_SERV;
+const DB_PORT = process.env.DB_PORT;
+const DB = process.env.DB;
+const DB_URI = DB_SERV + DB_PORT + DB;
 mongoose.connect(DB_URI);
 
 const userSchema = new mongoose.Schema({
     email: String,
     password: String
 });
-const key = process.env.SECRET_KEY;
-//add encryption to schema
-userSchema.plugin(encrypt, {secret: key, encryptedFields:['password']});
 
 const User = mongoose.model("User", userSchema);    //using default mongoose connection
 
@@ -43,7 +42,7 @@ app.route("/login")
     })
     .post((req, res) => {
         const username = req.body.username;
-        const password = req.body.password;
+        const password = md5(req.body.password);
 
         User.findOne({email: username}, (err,result)=>{
             if(err){
@@ -64,7 +63,7 @@ app.route("/register")
     .post((req, res) => {
         const newUser = new User({
             email: req.body.username,
-            password: req.body.password
+            password: md5(req.body.password)
         });
 
         newUser.save()
