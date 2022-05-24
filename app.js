@@ -4,8 +4,30 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt")
-const saltRounds = 12;
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+
+/* ---------------Express Configuration ------------*/
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.set('view engine', 'ejs');
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static("public"));
+
+
+
+//configure express-session 
+app.use(session({
+    secret: process.env.EXP_SESS_SECRET,
+    resave: false,
+    saveUninitialized: true,
+    //cookie: { secure: false }
+}));
+
+//configure passport.  Order is import.  Must init passport first, then tell express to use the session defined above.
+app.use(passport.initialize());
+app.use(passport.session());
 
 /* ---------------Database Configuration ------------*/
 const DB_SERV = process.env.DB_SERV;
@@ -15,18 +37,17 @@ const DB_URI = DB_SERV + DB_PORT + DB;
 mongoose.connect(DB_URI);
 
 const userSchema = new mongoose.Schema({
-    email: String,
+    username: String,
     password: String
 });
+//add passportLocalMongoose to handle (de)serialization of session credentials
+userSchema.plugin(passportLocalMongoose);
 
+//create user model and configure passport to use passportLocalMongoose
 const User = mongoose.model("User", userSchema);    //using default mongoose connection
-
-/* ---------------Express Configuration ------------*/
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.set('view engine', 'ejs');
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static("public"));
+passport.use(User.createStrategy());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.listen(PORT, function () {
     console.log("Server started on port " + PORT);
@@ -41,25 +62,19 @@ app.route("/login")
     .get((req, res) => {
         res.render("login");
     })
-    .post((req, res) => {
-        const username = req.body.username;
-        const password = req.body.password;
+    .post((req,res)=>{
+        const user = new User({                 //create user using Mongoose User model
+            username: req.body.username,
+            password: req.body.password
+        });
 
-        User.findOne({ email: username }, (err, result) => {
-            if (err) {
-                res.send(err);
-            } else {
-                if (result) {
-                    bcrypt.compare(password, result.password, (compErr, compRes) => {
-                        if (compErr) {                        //Log error
-                            console.log(compErr)
-                        } else if (!compRes) {
-                            res.send("Invalid Password");   //Invalid Password
-                        } else {
-                            res.render("secrets");          //No errors, password checks out
-                        }
-                    });
-                }
+        req.login(user, (err)=>{
+            if(err){
+                console.log(err);
+            }else{
+                passport.authenticate("local")(req, res, ()=>{
+                    res.redirect("/secrets");
+                });
             }
         });
     });
@@ -68,26 +83,29 @@ app.route("/register")
     .get((req, res) => {
         res.render("register");
     })
-
     .post((req, res) => {
-        bcrypt.hash(req.body.password, saltRounds, (hashError, hash) => {
-            if (!hashError) {
-                const newUser = new User({
-                    email: req.body.username,
-                    password: hash
-                });
-
-                newUser.save()
-                    .then(() => {
-                        res.render("secrets")
-                    })
-                    .catch((save_err) => {
-                        console.log("Error saving password Hash...")
-                        res.send(save_err);
-                    });
+        console.log(req.body);
+        User.register({ username: req.body.username }, req.body.password, (err, user) => {
+            if (err) {
+                console.log("Error registering: ");
+                console.log(err);
+                res.redirect("/register");
             } else {
-                console.log("Error Hashing Password...")
-                console.log(hashError)
+                console.log("Registration Successful");
+                passport.authenticate("local")(req, res, ()=>{
+                    res.redirect("/secrets");
+                });
             }
         });
+    });
+
+app.route("/secrets")
+    .get((req, res) => {
+        if (req.isAuthenticated()) {
+            console.log("Local Authentication Successful");
+            res.render("secrets");
+        } else {
+            console.log("Local Authentication Failed");
+            res.redirect("/login");
+        }
     });
