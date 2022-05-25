@@ -109,3 +109,15 @@ app.route("/secrets")
             res.redirect("/login");
         }
     });
+
+    app.route("/logout")
+    .get((req,res)=>{
+        req.logout((err)=>{
+            if(err){
+                console.log(err);
+            }else{
+                res.redirect("/");
+            }
+        });
+        
+    });
