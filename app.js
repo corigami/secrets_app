@@ -7,6 +7,8 @@ const mongoose = require("mongoose");
 const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require("mongoose-findorcreate");
 
 /* ---------------Express Configuration ------------*/
 const app = express();
@@ -42,12 +44,27 @@ const userSchema = new mongoose.Schema({
 });
 //add passportLocalMongoose to handle (de)serialization of session credentials
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 //create user model and configure passport to use passportLocalMongoose
 const User = mongoose.model("User", userSchema);    //using default mongoose connection
 passport.use(User.createStrategy());
 passport.serializeUser(User.serializeUser());
 passport.deserializeUser(User.deserializeUser());
+
+//configure passport to use google oauth
+passport.use(new GoogleStrategy({
+    clientID: process.env.OAUTH_CLIENT_ID,
+    clientSecret: process.env.OAUTH_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets"
+},
+    function (accessToken, refreshToken, profile, cb) {
+        //We are using mongoose-findorcreate package to add findOrCreate method rather than redefining...
+        User.findOrCreate({ googleId: profile.id }, function (err, user) {
+            return cb(err, user);
+        });
+    }
+));
 
 app.listen(PORT, function () {
     console.log("Server started on port " + PORT);
@@ -58,21 +75,34 @@ app.listen(PORT, function () {
 app.get("/", (req, res) => {
     res.render("home");
 })
+
+app.route("/auth/google")
+.get(    
+    passport.authenticate("google", {scope: ["profile"]})
+    );
+
+//authorized redirect route as specified in OAUTH Client Setup
+app.route("/auth/google/secrets")
+.get(
+    passport.authenticate("google", {failureRedirect: "/login"}),(req,res)=>{
+        res.redirect("/secrets");
+    });
+
 app.route("/login")
     .get((req, res) => {
         res.render("login");
     })
-    .post((req,res)=>{
+    .post((req, res) => {
         const user = new User({                 //create user using Mongoose User model
             username: req.body.username,
             password: req.body.password
         });
 
-        req.login(user, (err)=>{
-            if(err){
+        req.login(user, (err) => {
+            if (err) {
                 console.log(err);
-            }else{
-                passport.authenticate("local")(req, res, ()=>{
+            } else {
+                passport.authenticate("local")(req, res, () => {
                     res.redirect("/secrets");
                 });
             }
@@ -92,12 +122,15 @@ app.route("/register")
                 res.redirect("/register");
             } else {
                 console.log("Registration Successful");
-                passport.authenticate("local")(req, res, ()=>{
+                passport.authenticate("local")(req, res, () => {
                     res.redirect("/secrets");
                 });
             }
         });
     });
+
+
+
 
 app.route("/secrets")
     .get((req, res) => {
@@ -110,14 +143,14 @@ app.route("/secrets")
         }
     });
 
-    app.route("/logout")
-    .get((req,res)=>{
-        req.logout((err)=>{
-            if(err){
+app.route("/logout")
+    .get((req, res) => {
+        req.logout((err) => {
+            if (err) {
                 console.log(err);
-            }else{
+            } else {
                 res.redirect("/");
             }
         });
-        
+
     });
