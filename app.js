@@ -8,6 +8,7 @@ const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const FacebookStrategy = require('passport-facebook').Strategy;
 const findOrCreate = require("mongoose-findorcreate");
 
 /* ---------------Express Configuration ------------*/
@@ -41,30 +42,39 @@ mongoose.connect(DB_URI);
 const userSchema = new mongoose.Schema({
     username: String,
     password: String,
-    googleId: String
 });
+
+const googleSchema = new mongoose.Schema({
+    googleId: String,
+});
+
+const fbSchema = new mongoose.Schema({
+    facebookId: String
+});
+
 //add passportLocalMongoose to handle (de)serialization of session credentials
 userSchema.plugin(passportLocalMongoose);
-userSchema.plugin(findOrCreate);
+//userSchema.plugin(findOrCreate);
+googleSchema.plugin(findOrCreate);
+fbSchema.plugin(findOrCreate);
 
-//create user model and configure passport to use passportLocalMongoose
-const User = mongoose.model("User", userSchema);    //using default mongoose connection
+//create user model and configure passport to use passportLocalMongoose, Google, and Facebook
+const User = mongoose.model("User", userSchema,'users');    //using default mongoose connection
+const GoogleUser = mongoose.model("GoogleUser", googleSchema,'users');
+const FBUser = mongoose.model("FBUser", fbSchema,'users');
 passport.use(User.createStrategy());
-// passport.serializeUser(User.serializeUser());
-// passport.deserializeUser(User.deserializeUser());
 
-passport.serializeUser(function (user, cb) {
+passport.serializeUser((user, cb) => {
     process.nextTick(function () {
         cb(null, { id: user.id, username: user.username });
     });
 });
 
-passport.deserializeUser(function (user, cb) {
+passport.deserializeUser((user, cb) => {
     process.nextTick(function () {
         return cb(null, user);
     });
 });
-
 
 //configure passport to use google oauth
 passport.use(new GoogleStrategy({
@@ -74,11 +84,28 @@ passport.use(new GoogleStrategy({
 },
     function (accessToken, refreshToken, profile, cb) {
         //We are using mongoose-findorcreate package to add findOrCreate method rather than redefining...
-        User.findOrCreate({ googleId: profile.id }, function (err, user) {
+        GoogleUser.findOrCreate({ googleId: profile.id }, function (err, user) {
+            console.log(user);
             return cb(err, user);
         });
     }
 ));
+
+//configure passport to use facebook oauth
+passport.use(new FacebookStrategy({
+    clientID: process.env.FACEBOOK_APP_ID,
+    clientSecret: process.env.FACEBOOK_APP_SECRET,
+    callbackURL: "http://localhost:3000/auth/facebook/secrets"
+},
+    function (accessToken, refreshToken, profile, cb) {
+        FBUser.findOrCreate({ facebookId: profile.id }, function (err, user) {
+            console.log(err);
+            console.log(user);
+            return cb(err, user);
+        });
+    }
+));
+
 
 app.listen(PORT, function () {
     console.log("Server started on port " + PORT);
@@ -90,11 +117,11 @@ app.get("/", (req, res) => {
     res.render("home");
 })
 
+//---Google Authentication---//
 app.route("/auth/google")
     .get(
         passport.authenticate("google", { scope: ["profile"] })
     );
-
 //authorized redirect route as specified in OAUTH Client Setup
 app.route("/auth/google/secrets")
     .get(
@@ -103,6 +130,21 @@ app.route("/auth/google/secrets")
             res.redirect("/secrets");
         });
 
+//---Facebook Authentication---//
+app.route("/auth/facebook")
+    .get(
+        passport.authenticate("facebook")
+    );
+app.route("/auth/facebook/secrets")
+    .get(
+        passport.authenticate('facebook', { failureRedirect: '/login' }),
+        function (req, res) {
+            // Successful authentication, redirect home.
+            console.log("Authenticating w/ Facebook");
+            res.redirect('/secrets');
+        });
+
+//---Local Authentication---//
 app.route("/login")
     .get((req, res) => {
         res.render("login");
