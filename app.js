@@ -40,7 +40,8 @@ mongoose.connect(DB_URI);
 
 const userSchema = new mongoose.Schema({
     username: String,
-    password: String
+    password: String,
+    googleId: String
 });
 //add passportLocalMongoose to handle (de)serialization of session credentials
 userSchema.plugin(passportLocalMongoose);
@@ -49,8 +50,21 @@ userSchema.plugin(findOrCreate);
 //create user model and configure passport to use passportLocalMongoose
 const User = mongoose.model("User", userSchema);    //using default mongoose connection
 passport.use(User.createStrategy());
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// passport.serializeUser(User.serializeUser());
+// passport.deserializeUser(User.deserializeUser());
+
+passport.serializeUser(function (user, cb) {
+    process.nextTick(function () {
+        cb(null, { id: user.id, username: user.username });
+    });
+});
+
+passport.deserializeUser(function (user, cb) {
+    process.nextTick(function () {
+        return cb(null, user);
+    });
+});
+
 
 //configure passport to use google oauth
 passport.use(new GoogleStrategy({
@@ -77,16 +91,17 @@ app.get("/", (req, res) => {
 })
 
 app.route("/auth/google")
-.get(    
-    passport.authenticate("google", {scope: ["profile"]})
+    .get(
+        passport.authenticate("google", { scope: ["profile"] })
     );
 
 //authorized redirect route as specified in OAUTH Client Setup
 app.route("/auth/google/secrets")
-.get(
-    passport.authenticate("google", {failureRedirect: "/login"}),(req,res)=>{
-        res.redirect("/secrets");
-    });
+    .get(
+        passport.authenticate("google", { failureRedirect: "/login" }),
+        (req, res) => {
+            res.redirect("/secrets");
+        });
 
 app.route("/login")
     .get((req, res) => {
