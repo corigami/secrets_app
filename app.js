@@ -42,26 +42,18 @@ mongoose.connect(DB_URI);
 const userSchema = new mongoose.Schema({
     username: String,
     password: String,
-});
-
-const googleSchema = new mongoose.Schema({
     googleId: String,
+    facebookId: String,
+    secret: String
 });
 
-const fbSchema = new mongoose.Schema({
-    facebookId: String
-});
 
 //add passportLocalMongoose to handle (de)serialization of session credentials
 userSchema.plugin(passportLocalMongoose);
-//userSchema.plugin(findOrCreate);
-googleSchema.plugin(findOrCreate);
-fbSchema.plugin(findOrCreate);
+userSchema.plugin(findOrCreate);
 
 //create user model and configure passport to use passportLocalMongoose, Google, and Facebook
-const User = mongoose.model("User", userSchema,'users');    //using default mongoose connection
-const GoogleUser = mongoose.model("GoogleUser", googleSchema,'users');
-const FBUser = mongoose.model("FBUser", fbSchema,'users');
+const User = mongoose.model("User", userSchema, 'users');    //using default mongoose connection
 passport.use(User.createStrategy());
 
 passport.serializeUser((user, cb) => {
@@ -84,8 +76,7 @@ passport.use(new GoogleStrategy({
 },
     function (accessToken, refreshToken, profile, cb) {
         //We are using mongoose-findorcreate package to add findOrCreate method rather than redefining...
-        GoogleUser.findOrCreate({ googleId: profile.id }, function (err, user) {
-            console.log(user);
+        User.findOrCreate({ googleId: profile.id }, function (err, user) {
             return cb(err, user);
         });
     }
@@ -98,19 +89,15 @@ passport.use(new FacebookStrategy({
     callbackURL: "http://localhost:3000/auth/facebook/secrets"
 },
     function (accessToken, refreshToken, profile, cb) {
-        FBUser.findOrCreate({ facebookId: profile.id }, function (err, user) {
-            console.log(err);
-            console.log(user);
+        User.findOrCreate({ facebookId: profile.id }, function (err, user) {
             return cb(err, user);
         });
     }
 ));
 
-
 app.listen(PORT, function () {
     console.log("Server started on port " + PORT);
 });
-
 
 /* ------------------Routes ---------------*/
 app.get("/", (req, res) => {
@@ -127,6 +114,7 @@ app.route("/auth/google/secrets")
     .get(
         passport.authenticate("google", { failureRedirect: "/login" }),
         (req, res) => {
+            console.log("Authenticating w/ Google");
             res.redirect("/secrets");
         });
 
@@ -157,6 +145,7 @@ app.route("/login")
 
         req.login(user, (err) => {
             if (err) {
+                console.log("Error with user log in");
                 console.log(err);
             } else {
                 passport.authenticate("local")(req, res, () => {
@@ -171,7 +160,6 @@ app.route("/register")
         res.render("register");
     })
     .post((req, res) => {
-        console.log(req.body);
         User.register({ username: req.body.username }, req.body.password, (err, user) => {
             if (err) {
                 console.log("Error registering: ");
@@ -186,28 +174,55 @@ app.route("/register")
         });
     });
 
-
-
-
 app.route("/secrets")
     .get((req, res) => {
-        if (req.isAuthenticated()) {
-            console.log("Local Authentication Successful");
-            res.render("secrets");
-        } else {
-            console.log("Local Authentication Failed");
-            res.redirect("/login");
-        }
+        User.find({"secret": {$ne:null}}, (err, users)=>{
+            if(err){
+                console.log("Error retrieving users with secrets");
+                console.log(err);
+            }else{
+                res.render("secrets", {users_with_secrets:users});
+            }
+        });
     });
 
 app.route("/logout")
     .get((req, res) => {
         req.logout((err) => {
             if (err) {
+                console.log("Error logging out");
                 console.log(err);
             } else {
                 res.redirect("/");
             }
         });
 
+    });
+
+app.route("/submit")
+    .get((req, res) => {
+        if (req.isAuthenticated()) {
+            console.log("Local Authentication Successful");
+            res.render("submit");
+        } else {
+            console.log("Local Authentication Failed");
+            res.redirect("/login");
+        }
+    })
+
+    .post((req,res)=>{
+        const secret_text = req.body.secret;
+        req.user.id
+
+        User.findById(req.user.id, (err, user)=>{
+            if (err) {
+                console.log("Error finding user in database.");
+                console.log(err);
+            } else if(user) {
+                user.secret = secret_text;
+                user.save(()=>{
+                    res.redirect("/secrets")
+                });
+            }
+        });
     });
